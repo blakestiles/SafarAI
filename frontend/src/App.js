@@ -729,12 +729,9 @@ const Brief = () => {
   
   const EventCard = ({ event }) => (
     <div className="event-card-bw">
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4">
         <span className="badge-bw badge-white">
           {event.event_type?.replace("_", " ")}
-        </span>
-        <span className="text-xs font-mono text-white/50 bg-white/5 px-3 py-1 rounded-full">
-          Score: {event.materiality_score}
         </span>
       </div>
       <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
@@ -789,10 +786,10 @@ const Brief = () => {
         </div>
       </ScrollReveal>
       
-      <Section title="🔥 Top Movers" events={topMovers} />
-      <Section title="🤝 Partnerships" events={partnerships} />
-      <Section title="💰 Funding" events={funding} />
-      <Section title="🎯 Campaigns & Deals" events={campaigns} />
+      <Section title="Top Movers" events={topMovers} />
+      <Section title="Partnerships" events={partnerships} />
+      <Section title="Funding" events={funding} />
+      <Section title="Campaigns & Deals" events={campaigns} />
     </div>
   );
 };
