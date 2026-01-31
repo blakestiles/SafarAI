@@ -27,7 +27,7 @@ const API = `${BACKEND_URL}/api`;
 // LUNAR UI COMPONENTS
 // ========================
 
-// Interactive Globe Component (COBE)
+// Interactive Globe Component (COBE) - Lunar UI Style
 const InteractiveGlobe = () => {
   const canvasRef = useRef(null);
   const pointerInteracting = useRef(null);
@@ -48,28 +48,35 @@ const InteractiveGlobe = () => {
     
     const globe = createGlobe(canvasRef.current, {
       devicePixelRatio: 2,
-      width: 600 * 2,
-      height: 600 * 2,
+      width: 800 * 2,
+      height: 800 * 2,
       phi: 0,
-      theta: 0.25,
+      theta: 0.3,
       dark: 1,
-      diffuse: 1.2,
-      mapSamples: 16000,
-      mapBrightness: 6,
-      baseColor: [0.1, 0.1, 0.1],
+      diffuse: 3,
+      mapSamples: 24000,
+      mapBrightness: 1.8,
+      baseColor: [0.4, 0.4, 0.4],
       markerColor: [1, 1, 1],
-      glowColor: [0.15, 0.15, 0.15],
+      glowColor: [0.1, 0.1, 0.1],
       markers: [
-        { location: [40.7128, -74.0060], size: 0.05 }, // NYC
-        { location: [51.5074, -0.1278], size: 0.05 },  // London
-        { location: [35.6762, 139.6503], size: 0.05 }, // Tokyo
-        { location: [48.8566, 2.3522], size: 0.05 },   // Paris
-        { location: [25.2048, 55.2708], size: 0.05 },  // Dubai
+        // Major tourism hubs
+        { location: [40.7128, -74.0060], size: 0.06 },  // NYC
+        { location: [51.5074, -0.1278], size: 0.06 },   // London
+        { location: [35.6762, 139.6503], size: 0.06 }, // Tokyo
+        { location: [48.8566, 2.3522], size: 0.05 },    // Paris
+        { location: [25.2048, 55.2708], size: 0.07 },   // Dubai
         { location: [-33.8688, 151.2093], size: 0.05 }, // Sydney
+        { location: [1.3521, 103.8198], size: 0.05 },   // Singapore
+        { location: [55.7558, 37.6173], size: 0.04 },   // Moscow
+        { location: [-22.9068, -43.1729], size: 0.04 }, // Rio
+        { location: [19.4326, -99.1332], size: 0.04 },  // Mexico City
+        { location: [22.3193, 114.1694], size: 0.05 },  // Hong Kong
+        { location: [13.7563, 100.5018], size: 0.05 },  // Bangkok
       ],
       onRender: (state) => {
         if (!pointerInteracting.current) {
-          phi += 0.003;
+          phi += 0.002;
         }
         state.phi = phi + rotation;
         state.width = width * 2;
@@ -84,10 +91,12 @@ const InteractiveGlobe = () => {
   }, [rotation]);
 
   return (
-    <div className="relative w-full aspect-square max-w-[500px] mx-auto">
+    <div className="relative w-full aspect-square max-w-[450px] mx-auto">
+      {/* Glow effect behind globe */}
+      <div className="absolute inset-0 rounded-full bg-white/[0.02] blur-3xl" />
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="w-full h-full cursor-grab active:cursor-grabbing relative z-10"
         style={{ contain: 'layout paint size' }}
         onPointerDown={(e) => {
           pointerInteracting.current = e.clientX - pointerInteractionMovement.current;
@@ -113,7 +122,8 @@ const InteractiveGlobe = () => {
           }
         }}
       />
-      <div className="absolute inset-0 rounded-full bg-gradient-to-t from-black via-transparent to-transparent pointer-events-none" />
+      {/* Gradient overlay at bottom */}
+      <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black to-transparent pointer-events-none z-20" />
     </div>
   );
 };
