@@ -457,9 +457,9 @@ async def run_pipeline(run_id: str):
             for link_url in filtered_links[:3]:
                 try:
                     link_result = await asyncio.to_thread(
-                        firecrawl.scrape_url,
+                        firecrawl.scrape,
                         link_url,
-                        params={'formats': ['markdown']}
+                        formats=['markdown']
                     )
                     
                     if link_result and link_result.get('markdown'):
