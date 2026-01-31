@@ -205,13 +205,23 @@ If content is not relevant to tourism/hospitality intelligence, return null."""
         
         # Parse JSON response
         response_text = response.strip()
-        if response_text.lower() == "null":
+        if response_text.lower() == "null" or not response_text:
             return None
         
         # Clean up response if it has markdown code blocks
-        if response_text.startswith("```"):
+        if "```json" in response_text:
+            start = response_text.find("```json") + 7
+            end = response_text.find("```", start)
+            response_text = response_text[start:end].strip() if end > start else response_text
+        elif response_text.startswith("```"):
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        
+        # Find JSON object in response
+        json_start = response_text.find("{")
+        json_end = response_text.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            response_text = response_text[json_start:json_end]
         
         result = json.loads(response_text)
         result["source_url"] = url
