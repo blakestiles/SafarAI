@@ -469,9 +469,15 @@ async def run_pipeline(run_id: str):
                         formats=['markdown']
                     )
                     
-                    if link_result and link_result.get('markdown'):
-                        link_markdown = link_result.get('markdown', '')
-                        link_title = link_result.get('metadata', {}).get('title', link_url)
+                    if link_result:
+                        # Handle Firecrawl Document object
+                        if hasattr(link_result, 'markdown'):
+                            link_markdown = link_result.markdown or ''
+                            link_title = getattr(link_result.metadata, 'title', link_url) if hasattr(link_result, 'metadata') and link_result.metadata else link_url
+                        else:
+                            # Fallback for dict response
+                            link_markdown = link_result.get('markdown', '')
+                            link_title = link_result.get('metadata', {}).get('title', link_url)
                         link_hash = compute_hash(link_markdown)
                         
                         link_existing = await db.items.find_one({"url": link_url}, {"_id": 0})
