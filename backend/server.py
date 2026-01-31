@@ -389,9 +389,16 @@ async def run_pipeline(run_id: str):
             if not crawl_result:
                 raise Exception("Empty crawl result")
             
-            markdown = crawl_result.get('markdown', '')
-            title = crawl_result.get('metadata', {}).get('title', source_name)
-            links = crawl_result.get('links', [])
+            # Handle Firecrawl Document object
+            if hasattr(crawl_result, 'markdown'):
+                markdown = crawl_result.markdown or ''
+                title = getattr(crawl_result.metadata, 'title', source_name) if hasattr(crawl_result, 'metadata') and crawl_result.metadata else source_name
+                links = getattr(crawl_result, 'links', []) or []
+            else:
+                # Fallback for dict response
+                markdown = crawl_result.get('markdown', '')
+                title = crawl_result.get('metadata', {}).get('title', source_name)
+                links = crawl_result.get('links', [])
             
             # Filter and limit links
             filtered_links = [l for l in links if filter_link(l)][:8]
