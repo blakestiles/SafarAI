@@ -148,6 +148,9 @@ def compute_hash(content: str) -> str:
 
 def filter_link(url: str) -> bool:
     url_lower = url.lower()
+    # Block social media domains
+    if any(domain in url_lower for domain in BLOCKED_DOMAINS):
+        return False
     return any(kw in url_lower for kw in KEYWORDS)
 
 async def log_run(run_id: str, level: str, message: str, meta: dict = None):
