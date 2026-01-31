@@ -133,6 +133,12 @@ KEYWORDS = [
     "discount", "promotion", "vacation", "resort", "special offer", "announcement"
 ]
 
+# Blocked domains (social media, etc.)
+BLOCKED_DOMAINS = [
+    "facebook.com", "twitter.com", "instagram.com", "linkedin.com", 
+    "youtube.com", "tiktok.com", "pinterest.com", "x.com"
+]
+
 # ========================
 # UTILITY FUNCTIONS
 # ========================
