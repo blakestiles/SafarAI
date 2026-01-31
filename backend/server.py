@@ -236,105 +236,70 @@ If content is not relevant to tourism/hospitality intelligence, return null."""
 # ========================
 
 def generate_html_brief(events: List[Dict], run: Dict) -> str:
-    """Generate stunning HTML executive briefing email."""
+    """Generate stunning black & white HTML executive briefing email."""
     
     top_movers = [e for e in events if e.get('materiality_score', 0) >= 70]
     partnerships = [e for e in events if e.get('event_type') == 'partnership']
     funding = [e for e in events if e.get('event_type') == 'funding']
     campaigns = [e for e in events if e.get('event_type') == 'campaign_deal']
-    other_events = [e for e in events if e.get('event_type') not in ['partnership', 'funding', 'campaign_deal'] and e.get('materiality_score', 0) < 70]
     
     def event_card(event: Dict) -> str:
-        badge_colors = {
-            "partnership": {"bg": "#10B981", "light": "#D1FAE5", "text": "#065F46"},
-            "funding": {"bg": "#3B82F6", "light": "#DBEAFE", "text": "#1E40AF"},
-            "campaign_deal": {"bg": "#F59E0B", "light": "#FEF3C7", "text": "#92400E"},
-            "acquisition": {"bg": "#8B5CF6", "light": "#EDE9FE", "text": "#5B21B6"},
-            "pricing_change": {"bg": "#EC4899", "light": "#FCE7F3", "text": "#9D174D"},
-            "hiring_exec": {"bg": "#06B6D4", "light": "#CFFAFE", "text": "#0E7490"},
-            "other": {"bg": "#6B7280", "light": "#F3F4F6", "text": "#374151"}
-        }
-        colors = badge_colors.get(event.get('event_type', 'other'), badge_colors['other'])
         score = event.get('materiality_score', 0)
-        score_color = "#10B981" if score >= 70 else "#F59E0B" if score >= 40 else "#94A3B8"
+        event_type = event.get('event_type', 'other').replace('_', ' ').upper()
         
         quotes_html = ""
         for quote in event.get('evidence_quotes', [])[:2]:
             quotes_html += f'''
-            <div style="border-left:3px solid #334155;padding-left:12px;margin:12px 0;">
-                <p style="font-style:italic;color:#94A3B8;font-size:13px;margin:0;line-height:1.5;">"{quote[:200]}..."</p>
-            </div>
-            '''
-        
-        # Key entities
-        entities_html = ""
-        key_entities = event.get('key_entities', {})
-        entity_items = []
-        for key, values in key_entities.items():
-            if values and isinstance(values, list) and len(values) > 0:
-                entity_items.extend(values[:2])
-        if entity_items:
-            entities_html = f'''
-            <div style="margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;">
-                {''.join(f'<span style="background:#1E293B;color:#94A3B8;padding:4px 10px;border-radius:20px;font-size:11px;border:1px solid #334155;">{item}</span>' for item in entity_items[:4])}
+            <div style="border-left:2px solid #333;padding-left:16px;margin:16px 0;">
+                <p style="font-style:italic;color:#888;font-size:13px;margin:0;line-height:1.6;">"{quote[:150]}..."</p>
             </div>
             '''
         
         return f'''
-        <div style="background:linear-gradient(135deg,#0F172A 0%,#1E293B 100%);border-radius:16px;padding:24px;margin-bottom:16px;border:1px solid #334155;border-left:4px solid {colors['bg']};">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                <span style="background:{colors['bg']};color:white;padding:6px 14px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">
-                    {event.get('event_type', 'other').replace('_', ' ')}
+        <div style="background:#0a0a0a;border-radius:12px;padding:28px;margin-bottom:16px;border:1px solid #1a1a1a;border-left:3px solid #fff;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <span style="background:#fff;color:#000;padding:6px 16px;border-radius:100px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+                    {event_type}
                 </span>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="background:#0F172A;color:{score_color};padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #334155;">
-                        ⚡ {score}
-                    </span>
-                </div>
+                <span style="color:#fff;font-size:24px;font-weight:700;font-family:monospace;">
+                    {score}
+                </span>
             </div>
-            <h3 style="color:#F8FAFC;margin:0 0 8px 0;font-size:20px;font-weight:700;line-height:1.3;">{event.get('title', 'N/A')}</h3>
-            <p style="color:#60A5FA;font-size:14px;margin:0 0 12px 0;font-weight:600;">{event.get('company', 'Unknown Company')}</p>
-            <p style="color:#CBD5E1;font-size:14px;margin:0 0 16px 0;line-height:1.6;">{event.get('summary', '')}</p>
+            <h3 style="color:#fff;margin:0 0 12px 0;font-size:22px;font-weight:600;line-height:1.3;">{event.get('title', 'N/A')}</h3>
+            <p style="color:#666;font-size:14px;margin:0 0 16px 0;text-transform:uppercase;letter-spacing:0.5px;">{event.get('company', 'Unknown Company')}</p>
+            <p style="color:#aaa;font-size:15px;margin:0 0 20px 0;line-height:1.7;">{event.get('summary', '')}</p>
             
-            <div style="background:#020617;border-radius:12px;padding:16px;margin:16px 0;border:1px solid #1E293B;">
-                <p style="color:#3B82F6;font-size:13px;margin:0;line-height:1.5;">
-                    <strong style="color:#60A5FA;">💡 Why it matters:</strong><br/>
-                    <span style="color:#94A3B8;">{event.get('why_it_matters', '')}</span>
-                </p>
+            <div style="background:#111;border-radius:8px;padding:20px;margin:20px 0;border:1px solid #222;">
+                <p style="color:#fff;font-size:11px;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:1px;opacity:0.5;">Why It Matters</p>
+                <p style="color:#ccc;font-size:14px;margin:0;line-height:1.6;">{event.get('why_it_matters', '')}</p>
             </div>
             
             {quotes_html}
-            {entities_html}
             
-            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #334155;">
-                <a href="{event.get('source_url', '#')}" style="color:#3B82F6;font-size:13px;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;">
+            <div style="margin-top:20px;padding-top:20px;border-top:1px solid #222;">
+                <a href="{event.get('source_url', '#')}" style="color:#fff;font-size:12px;text-decoration:none;text-transform:uppercase;letter-spacing:1px;opacity:0.6;">
                     View Source →
                 </a>
             </div>
         </div>
         '''
     
-    def section(title: str, emoji: str, items: List[Dict], color: str) -> str:
+    def section(title: str, items: List[Dict]) -> str:
         if not items:
             return ""
         cards = "".join(event_card(e) for e in items[:5])
         return f'''
-        <div style="margin-bottom:40px;">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #1E293B;">
-                <span style="font-size:28px;">{emoji}</span>
-                <div>
-                    <h2 style="color:#F8FAFC;font-size:24px;margin:0;font-weight:700;letter-spacing:-0.5px;">{title}</h2>
-                    <p style="color:#64748B;font-size:13px;margin:4px 0 0 0;">{len(items)} intelligence item{'s' if len(items) != 1 else ''}</p>
-                </div>
+        <div style="margin-bottom:48px;">
+            <div style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #222;">
+                <h2 style="color:#fff;font-size:14px;margin:0;font-weight:600;text-transform:uppercase;letter-spacing:2px;">{title}</h2>
+                <p style="color:#555;font-size:12px;margin:8px 0 0 0;">{len(items)} item{'s' if len(items) != 1 else ''}</p>
             </div>
             {cards}
         </div>
         '''
     
     today = datetime.now(timezone.utc).strftime("%B %d, %Y")
-    time_now = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
-    
-    # Summary stats
+    time_now = datetime.now(timezone.utc).strftime("%H:%M UTC")
     total_events = len(events)
     high_priority = len([e for e in events if e.get('materiality_score', 0) >= 70])
     
@@ -344,93 +309,83 @@ def generate_html_brief(events: List[Dict], run: Dict) -> str:
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     </head>
-    <body style="font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(180deg,#020617 0%,#0F172A 100%);margin:0;padding:0;-webkit-font-smoothing:antialiased;">
-        <div style="max-width:700px;margin:0 auto;padding:0;">
+    <body style="font-family:'Space Grotesk',-apple-system,sans-serif;background:#000;margin:0;padding:0;color:#fff;">
+        <div style="max-width:680px;margin:0 auto;">
             
             <!-- Header -->
-            <div style="background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);padding:48px 32px;text-align:center;border-bottom:1px solid #334155;">
-                <div style="display:inline-block;background:linear-gradient(135deg,#3B82F6 0%,#1D4ED8 100%);width:64px;height:64px;border-radius:16px;margin-bottom:20px;line-height:64px;">
-                    <span style="font-size:28px;">🌍</span>
+            <div style="padding:60px 40px;text-align:center;border-bottom:1px solid #1a1a1a;">
+                <div style="width:64px;height:64px;border-radius:16px;background:#fff;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;">
+                    <span style="font-size:28px;line-height:64px;">🌍</span>
                 </div>
-                <h1 style="color:#F8FAFC;font-size:36px;margin:0 0 8px 0;font-weight:700;letter-spacing:-1px;">
-                    SafarAI
+                <h1 style="color:#fff;font-size:32px;margin:0 0 8px 0;font-weight:700;letter-spacing:-1px;">
+                    SAFAR<span style="opacity:0.4;">AI</span>
                 </h1>
-                <p style="color:#3B82F6;font-size:14px;margin:0 0 24px 0;text-transform:uppercase;letter-spacing:3px;font-weight:600;">
+                <p style="color:#555;font-size:11px;margin:0 0 32px 0;text-transform:uppercase;letter-spacing:4px;">
                     Intelligence Brief
                 </p>
-                <div style="background:#020617;display:inline-block;padding:12px 24px;border-radius:30px;border:1px solid #334155;">
-                    <p style="color:#94A3B8;font-size:14px;margin:0;">
-                        📅 {today} • {time_now}
-                    </p>
+                <div style="display:inline-block;background:#0a0a0a;padding:12px 28px;border-radius:100px;border:1px solid #1a1a1a;">
+                    <p style="color:#888;font-size:13px;margin:0;">{today} · {time_now}</p>
                 </div>
             </div>
             
-            <!-- Quick Stats Banner -->
-            <div style="background:linear-gradient(90deg,#1E3A5F 0%,#1E293B 50%,#3D1E4D 100%);padding:24px 32px;">
-                <table style="width:100%;border-collapse:collapse;">
-                    <tr>
-                        <td style="text-align:center;padding:8px;">
-                            <p style="color:#60A5FA;font-size:32px;font-weight:700;margin:0;">{total_events}</p>
-                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Events</p>
-                        </td>
-                        <td style="text-align:center;padding:8px;border-left:1px solid #334155;border-right:1px solid #334155;">
-                            <p style="color:#10B981;font-size:32px;font-weight:700;margin:0;">{high_priority}</p>
-                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">High Priority</p>
-                        </td>
-                        <td style="text-align:center;padding:8px;">
-                            <p style="color:#F59E0B;font-size:32px;font-weight:700;margin:0;">{run.get('sources_ok', 0)}/{run.get('sources_total', 0)}</p>
-                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Sources OK</p>
-                        </td>
-                    </tr>
-                </table>
+            <!-- Stats Bar -->
+            <div style="display:flex;border-bottom:1px solid #1a1a1a;">
+                <div style="flex:1;padding:32px;text-align:center;border-right:1px solid #1a1a1a;">
+                    <p style="color:#fff;font-size:36px;font-weight:700;margin:0;font-family:monospace;">{total_events}</p>
+                    <p style="color:#555;font-size:10px;margin:8px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Events</p>
+                </div>
+                <div style="flex:1;padding:32px;text-align:center;border-right:1px solid #1a1a1a;">
+                    <p style="color:#fff;font-size:36px;font-weight:700;margin:0;font-family:monospace;">{high_priority}</p>
+                    <p style="color:#555;font-size:10px;margin:8px 0 0 0;text-transform:uppercase;letter-spacing:1px;">High Priority</p>
+                </div>
+                <div style="flex:1;padding:32px;text-align:center;">
+                    <p style="color:#fff;font-size:36px;font-weight:700;margin:0;font-family:monospace;">{run.get('sources_ok', 0)}/{run.get('sources_total', 0)}</p>
+                    <p style="color:#555;font-size:10px;margin:8px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Sources</p>
+                </div>
             </div>
             
             <!-- Main Content -->
-            <div style="background:#0F172A;padding:40px 32px;">
-                {section("Top Movers", "🔥", top_movers, "#F59E0B")}
-                {section("Partnerships & Alliances", "🤝", partnerships, "#10B981")}
-                {section("Funding & Investments", "💰", funding, "#3B82F6")}
-                {section("Campaigns & Deals", "🎯", campaigns, "#8B5CF6")}
+            <div style="padding:48px 40px;">
+                {section("Top Movers", top_movers)}
+                {section("Partnerships", partnerships)}
+                {section("Funding", funding)}
+                {section("Campaigns & Deals", campaigns)}
             </div>
             
-            <!-- Run Health Footer -->
-            <div style="background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);padding:32px;border-top:1px solid #334155;">
-                <h3 style="color:#F8FAFC;font-size:16px;margin:0 0 20px 0;display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:18px;">📊</span> Pipeline Health
-                </h3>
-                <table style="width:100%;border-collapse:collapse;">
-                    <tr>
-                        <td style="padding:12px 16px;background:#020617;border-radius:8px 0 0 8px;border:1px solid #334155;border-right:none;">
-                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Status</p>
-                            <p style="color:{'#10B981' if run.get('status') == 'success' else '#F59E0B'};font-size:14px;margin:0;font-weight:600;">
-                                {'✅' if run.get('status') == 'success' else '⚠️'} {run.get('status', 'unknown').upper()}
-                            </p>
-                        </td>
-                        <td style="padding:12px 16px;background:#020617;border:1px solid #334155;border-left:none;border-right:none;">
-                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">New Items</p>
-                            <p style="color:#60A5FA;font-size:14px;margin:0;font-weight:600;">{run.get('items_new', 0)}</p>
-                        </td>
-                        <td style="padding:12px 16px;background:#020617;border:1px solid #334155;border-left:none;border-right:none;">
-                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Updated</p>
-                            <p style="color:#F59E0B;font-size:14px;margin:0;font-weight:600;">{run.get('items_updated', 0)}</p>
-                        </td>
-                        <td style="padding:12px 16px;background:#020617;border-radius:0 8px 8px 0;border:1px solid #334155;border-left:none;">
-                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Events</p>
-                            <p style="color:#10B981;font-size:14px;margin:0;font-weight:600;">{run.get('events_created', 0)}</p>
-                        </td>
-                    </tr>
-                </table>
+            <!-- Pipeline Health -->
+            <div style="padding:40px;background:#0a0a0a;border-top:1px solid #1a1a1a;">
+                <p style="color:#555;font-size:10px;margin:0 0 20px 0;text-transform:uppercase;letter-spacing:2px;">Pipeline Health</p>
+                <div style="display:flex;gap:16px;">
+                    <div style="flex:1;background:#111;padding:20px;border-radius:8px;border:1px solid #1a1a1a;">
+                        <p style="color:#555;font-size:10px;margin:0 0 8px 0;text-transform:uppercase;">Status</p>
+                        <p style="color:{'#fff' if run.get('status') == 'success' else '#888'};font-size:14px;margin:0;font-weight:600;">
+                            {run.get('status', 'unknown').upper()}
+                        </p>
+                    </div>
+                    <div style="flex:1;background:#111;padding:20px;border-radius:8px;border:1px solid #1a1a1a;">
+                        <p style="color:#555;font-size:10px;margin:0 0 8px 0;text-transform:uppercase;">New</p>
+                        <p style="color:#fff;font-size:14px;margin:0;font-weight:600;">{run.get('items_new', 0)}</p>
+                    </div>
+                    <div style="flex:1;background:#111;padding:20px;border-radius:8px;border:1px solid #1a1a1a;">
+                        <p style="color:#555;font-size:10px;margin:0 0 8px 0;text-transform:uppercase;">Updated</p>
+                        <p style="color:#fff;font-size:14px;margin:0;font-weight:600;">{run.get('items_updated', 0)}</p>
+                    </div>
+                    <div style="flex:1;background:#111;padding:20px;border-radius:8px;border:1px solid #1a1a1a;">
+                        <p style="color:#555;font-size:10px;margin:0 0 8px 0;text-transform:uppercase;">Events</p>
+                        <p style="color:#fff;font-size:14px;margin:0;font-weight:600;">{run.get('events_created', 0)}</p>
+                    </div>
+                </div>
             </div>
             
             <!-- Footer -->
-            <div style="background:#020617;padding:32px;text-align:center;border-top:1px solid #1E293B;">
-                <p style="color:#64748B;font-size:13px;margin:0 0 8px 0;">
-                    Powered by <strong style="color:#3B82F6;">SafarAI</strong> Intelligence Platform
+            <div style="padding:40px;text-align:center;border-top:1px solid #1a1a1a;">
+                <p style="color:#444;font-size:12px;margin:0;">
+                    Powered by <strong style="color:#888;">SafarAI</strong>
                 </p>
-                <p style="color:#475569;font-size:11px;margin:0;">
-                    Tourism & Hospitality Competitive Intelligence
+                <p style="color:#333;font-size:10px;margin:8px 0 0 0;text-transform:uppercase;letter-spacing:1px;">
+                    Tourism & Hospitality Intelligence
                 </p>
             </div>
             
