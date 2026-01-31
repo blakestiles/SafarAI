@@ -547,3 +547,72 @@ code, pre, .font-mono {
 .metric-number.cyan { background: linear-gradient(135deg, #22D3EE 0%, #06B6D4 100%); -webkit-background-clip: text; background-clip: text; }
 .metric-number.purple { background: linear-gradient(135deg, #A78BFA 0%, #8B5CF6 100%); -webkit-background-clip: text; background-clip: text; }
 .metric-number.rose { background: linear-gradient(135deg, #FB7185 0%, #F43F5E 100%); -webkit-background-clip: text; background-clip: text; }
+
+/* Sparkle animation */
+@keyframes sparkle {
+    0%, 100% { opacity: 0; transform: scale(0); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+.animate-sparkle {
+    animation: sparkle 3s ease-in-out infinite;
+}
+
+/* Glass sidebar */
+.glass-sidebar {
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    background: linear-gradient(180deg, rgba(2, 6, 23, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Input glass style */
+.input-glass {
+    background: rgba(15, 23, 42, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px !important;
+    color: #F8FAFC !important;
+    transition: all 0.2s ease !important;
+}
+
+.input-glass:focus {
+    outline: none !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.input-glass::placeholder {
+    color: #64748B !important;
+}
+
+/* Event card hover effect */
+.event-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.event-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--event-color, #3B82F6);
+}
+
+/* Animated gradient text */
+.gradient-text-animated {
+    background: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899, #3B82F6);
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 5s ease infinite;
+}
+
+@keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
