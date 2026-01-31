@@ -381,9 +381,9 @@ async def run_pipeline(run_id: str):
         try:
             # Crawl with Firecrawl
             crawl_result = await asyncio.to_thread(
-                firecrawl.scrape_url,
+                firecrawl.scrape,
                 source_url,
-                params={'formats': ['markdown', 'links']}
+                formats=['markdown', 'links']
             )
             
             if not crawl_result:
