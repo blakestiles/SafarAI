@@ -557,12 +557,15 @@ async def run_pipeline(run_id: str):
         run_data_for_brief = {**run_data, "status": status}
         html_brief = generate_html_brief(all_events, run_data_for_brief)
         
+        # Clean events for brief (remove MongoDB _id)
+        clean_events = [{k: v for k, v in e.items() if k != '_id'} for e in all_events]
+        
         # Store brief
         brief_doc = {
             "id": str(uuid.uuid4()),
             "run_id": run_id,
             "html": html_brief,
-            "events": all_events,
+            "events": clean_events,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.briefs.insert_one(brief_doc)
