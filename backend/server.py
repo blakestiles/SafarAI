@@ -236,92 +236,204 @@ If content is not relevant to tourism/hospitality intelligence, return null."""
 # ========================
 
 def generate_html_brief(events: List[Dict], run: Dict) -> str:
-    """Generate HTML executive briefing email."""
+    """Generate stunning HTML executive briefing email."""
     
     top_movers = [e for e in events if e.get('materiality_score', 0) >= 70]
     partnerships = [e for e in events if e.get('event_type') == 'partnership']
     funding = [e for e in events if e.get('event_type') == 'funding']
     campaigns = [e for e in events if e.get('event_type') == 'campaign_deal']
+    other_events = [e for e in events if e.get('event_type') not in ['partnership', 'funding', 'campaign_deal'] and e.get('materiality_score', 0) < 70]
     
     def event_card(event: Dict) -> str:
         badge_colors = {
-            "partnership": "#10B981",
-            "funding": "#3B82F6",
-            "campaign_deal": "#F59E0B",
-            "acquisition": "#8B5CF6",
-            "pricing_change": "#EC4899",
-            "hiring_exec": "#06B6D4",
-            "other": "#6B7280"
+            "partnership": {"bg": "#10B981", "light": "#D1FAE5", "text": "#065F46"},
+            "funding": {"bg": "#3B82F6", "light": "#DBEAFE", "text": "#1E40AF"},
+            "campaign_deal": {"bg": "#F59E0B", "light": "#FEF3C7", "text": "#92400E"},
+            "acquisition": {"bg": "#8B5CF6", "light": "#EDE9FE", "text": "#5B21B6"},
+            "pricing_change": {"bg": "#EC4899", "light": "#FCE7F3", "text": "#9D174D"},
+            "hiring_exec": {"bg": "#06B6D4", "light": "#CFFAFE", "text": "#0E7490"},
+            "other": {"bg": "#6B7280", "light": "#F3F4F6", "text": "#374151"}
         }
-        color = badge_colors.get(event.get('event_type', 'other'), '#6B7280')
+        colors = badge_colors.get(event.get('event_type', 'other'), badge_colors['other'])
+        score = event.get('materiality_score', 0)
+        score_color = "#10B981" if score >= 70 else "#F59E0B" if score >= 40 else "#94A3B8"
         
         quotes_html = ""
         for quote in event.get('evidence_quotes', [])[:2]:
-            quotes_html += f'<p style="font-style:italic;color:#94A3B8;font-size:12px;margin:4px 0;">"{quote}"</p>'
+            quotes_html += f'''
+            <div style="border-left:3px solid #334155;padding-left:12px;margin:12px 0;">
+                <p style="font-style:italic;color:#94A3B8;font-size:13px;margin:0;line-height:1.5;">"{quote[:200]}..."</p>
+            </div>
+            '''
+        
+        # Key entities
+        entities_html = ""
+        key_entities = event.get('key_entities', {})
+        entity_items = []
+        for key, values in key_entities.items():
+            if values and isinstance(values, list) and len(values) > 0:
+                entity_items.extend(values[:2])
+        if entity_items:
+            entities_html = f'''
+            <div style="margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;">
+                {''.join(f'<span style="background:#1E293B;color:#94A3B8;padding:4px 10px;border-radius:20px;font-size:11px;border:1px solid #334155;">{item}</span>' for item in entity_items[:4])}
+            </div>
+            '''
         
         return f'''
-        <div style="background:#1E293B;border-radius:8px;padding:16px;margin-bottom:12px;border-left:4px solid {color};">
-            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
-                <span style="background:{color}20;color:{color};padding:2px 8px;border-radius:4px;font-size:10px;text-transform:uppercase;">{event.get('event_type', 'other').replace('_', ' ')}</span>
-                <span style="background:#374151;color:#F8FAFC;padding:2px 8px;border-radius:4px;font-size:11px;">Score: {event.get('materiality_score', 0)}</span>
+        <div style="background:linear-gradient(135deg,#0F172A 0%,#1E293B 100%);border-radius:16px;padding:24px;margin-bottom:16px;border:1px solid #334155;border-left:4px solid {colors['bg']};">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <span style="background:{colors['bg']};color:white;padding:6px 14px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">
+                    {event.get('event_type', 'other').replace('_', ' ')}
+                </span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="background:#0F172A;color:{score_color};padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #334155;">
+                        ⚡ {score}
+                    </span>
+                </div>
             </div>
-            <h3 style="color:#F8FAFC;margin:8px 0;font-size:16px;">{event.get('title', 'N/A')}</h3>
-            <p style="color:#CBD5E1;font-size:13px;margin:8px 0;">{event.get('company', 'Unknown Company')}</p>
-            <p style="color:#94A3B8;font-size:13px;margin:8px 0;">{event.get('summary', '')}</p>
-            <p style="color:#60A5FA;font-size:12px;margin:8px 0;"><strong>Why it matters:</strong> {event.get('why_it_matters', '')}</p>
+            <h3 style="color:#F8FAFC;margin:0 0 8px 0;font-size:20px;font-weight:700;line-height:1.3;">{event.get('title', 'N/A')}</h3>
+            <p style="color:#60A5FA;font-size:14px;margin:0 0 12px 0;font-weight:600;">{event.get('company', 'Unknown Company')}</p>
+            <p style="color:#CBD5E1;font-size:14px;margin:0 0 16px 0;line-height:1.6;">{event.get('summary', '')}</p>
+            
+            <div style="background:#020617;border-radius:12px;padding:16px;margin:16px 0;border:1px solid #1E293B;">
+                <p style="color:#3B82F6;font-size:13px;margin:0;line-height:1.5;">
+                    <strong style="color:#60A5FA;">💡 Why it matters:</strong><br/>
+                    <span style="color:#94A3B8;">{event.get('why_it_matters', '')}</span>
+                </p>
+            </div>
+            
             {quotes_html}
-            <a href="{event.get('source_url', '#')}" style="color:#3B82F6;font-size:12px;text-decoration:none;">View Source →</a>
+            {entities_html}
+            
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #334155;">
+                <a href="{event.get('source_url', '#')}" style="color:#3B82F6;font-size:13px;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;">
+                    View Source →
+                </a>
+            </div>
         </div>
         '''
     
-    def section(title: str, items: List[Dict]) -> str:
+    def section(title: str, emoji: str, items: List[Dict], color: str) -> str:
         if not items:
             return ""
         cards = "".join(event_card(e) for e in items[:5])
         return f'''
-        <div style="margin-bottom:24px;">
-            <h2 style="color:#F8FAFC;font-size:20px;border-bottom:1px solid #374151;padding-bottom:8px;margin-bottom:16px;">{title}</h2>
+        <div style="margin-bottom:40px;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #1E293B;">
+                <span style="font-size:28px;">{emoji}</span>
+                <div>
+                    <h2 style="color:#F8FAFC;font-size:24px;margin:0;font-weight:700;letter-spacing:-0.5px;">{title}</h2>
+                    <p style="color:#64748B;font-size:13px;margin:4px 0 0 0;">{len(items)} intelligence item{'s' if len(items) != 1 else ''}</p>
+                </div>
+            </div>
             {cards}
         </div>
         '''
     
     today = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    time_now = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
+    
+    # Summary stats
+    total_events = len(events)
+    high_priority = len([e for e in events if e.get('materiality_score', 0) >= 70])
     
     html = f'''
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; margin: 0; padding: 0; }}
-        </style>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     </head>
-    <body>
-        <div style="max-width:680px;margin:0 auto;background:#0F172A;padding:32px;">
-            <div style="text-align:center;margin-bottom:32px;">
-                <h1 style="color:#3B82F6;font-size:28px;margin:0;">SafarAI</h1>
-                <p style="color:#94A3B8;margin:8px 0;">Competitive Intelligence Brief</p>
-                <p style="color:#64748B;font-size:14px;">{today}</p>
-            </div>
+    <body style="font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(180deg,#020617 0%,#0F172A 100%);margin:0;padding:0;-webkit-font-smoothing:antialiased;">
+        <div style="max-width:700px;margin:0 auto;padding:0;">
             
-            {section("🔥 Top Movers", top_movers)}
-            {section("🤝 Partnerships", partnerships)}
-            {section("💰 Funding & Investments", funding)}
-            {section("🎯 Campaigns & Deals", campaigns)}
-            
-            <div style="background:#1E293B;border-radius:8px;padding:16px;margin-top:24px;">
-                <h3 style="color:#F8FAFC;font-size:14px;margin:0 0 12px 0;">Run Health</h3>
-                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
-                    <div style="color:#94A3B8;font-size:12px;">Status: <span style="color:{'#10B981' if run.get('status') == 'success' else '#F59E0B'}">{run.get('status', 'unknown').upper()}</span></div>
-                    <div style="color:#94A3B8;font-size:12px;">Sources: {run.get('sources_ok', 0)}/{run.get('sources_total', 0)} OK</div>
-                    <div style="color:#94A3B8;font-size:12px;">Items: {run.get('items_new', 0)} new, {run.get('items_updated', 0)} updated</div>
-                    <div style="color:#94A3B8;font-size:12px;">Events: {run.get('events_created', 0)} extracted</div>
+            <!-- Header -->
+            <div style="background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);padding:48px 32px;text-align:center;border-bottom:1px solid #334155;">
+                <div style="display:inline-block;background:linear-gradient(135deg,#3B82F6 0%,#1D4ED8 100%);width:64px;height:64px;border-radius:16px;margin-bottom:20px;line-height:64px;">
+                    <span style="font-size:28px;">🌍</span>
+                </div>
+                <h1 style="color:#F8FAFC;font-size:36px;margin:0 0 8px 0;font-weight:700;letter-spacing:-1px;">
+                    SafarAI
+                </h1>
+                <p style="color:#3B82F6;font-size:14px;margin:0 0 24px 0;text-transform:uppercase;letter-spacing:3px;font-weight:600;">
+                    Intelligence Brief
+                </p>
+                <div style="background:#020617;display:inline-block;padding:12px 24px;border-radius:30px;border:1px solid #334155;">
+                    <p style="color:#94A3B8;font-size:14px;margin:0;">
+                        📅 {today} • {time_now}
+                    </p>
                 </div>
             </div>
             
-            <div style="text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #374151;">
-                <p style="color:#64748B;font-size:12px;">Powered by SafarAI Intelligence Platform</p>
+            <!-- Quick Stats Banner -->
+            <div style="background:linear-gradient(90deg,#1E3A5F 0%,#1E293B 50%,#3D1E4D 100%);padding:24px 32px;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <tr>
+                        <td style="text-align:center;padding:8px;">
+                            <p style="color:#60A5FA;font-size:32px;font-weight:700;margin:0;">{total_events}</p>
+                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Events</p>
+                        </td>
+                        <td style="text-align:center;padding:8px;border-left:1px solid #334155;border-right:1px solid #334155;">
+                            <p style="color:#10B981;font-size:32px;font-weight:700;margin:0;">{high_priority}</p>
+                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">High Priority</p>
+                        </td>
+                        <td style="text-align:center;padding:8px;">
+                            <p style="color:#F59E0B;font-size:32px;font-weight:700;margin:0;">{run.get('sources_ok', 0)}/{run.get('sources_total', 0)}</p>
+                            <p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0;text-transform:uppercase;letter-spacing:1px;">Sources OK</p>
+                        </td>
+                    </tr>
+                </table>
             </div>
+            
+            <!-- Main Content -->
+            <div style="background:#0F172A;padding:40px 32px;">
+                {section("Top Movers", "🔥", top_movers, "#F59E0B")}
+                {section("Partnerships & Alliances", "🤝", partnerships, "#10B981")}
+                {section("Funding & Investments", "💰", funding, "#3B82F6")}
+                {section("Campaigns & Deals", "🎯", campaigns, "#8B5CF6")}
+            </div>
+            
+            <!-- Run Health Footer -->
+            <div style="background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);padding:32px;border-top:1px solid #334155;">
+                <h3 style="color:#F8FAFC;font-size:16px;margin:0 0 20px 0;display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:18px;">📊</span> Pipeline Health
+                </h3>
+                <table style="width:100%;border-collapse:collapse;">
+                    <tr>
+                        <td style="padding:12px 16px;background:#020617;border-radius:8px 0 0 8px;border:1px solid #334155;border-right:none;">
+                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Status</p>
+                            <p style="color:{'#10B981' if run.get('status') == 'success' else '#F59E0B'};font-size:14px;margin:0;font-weight:600;">
+                                {'✅' if run.get('status') == 'success' else '⚠️'} {run.get('status', 'unknown').upper()}
+                            </p>
+                        </td>
+                        <td style="padding:12px 16px;background:#020617;border:1px solid #334155;border-left:none;border-right:none;">
+                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">New Items</p>
+                            <p style="color:#60A5FA;font-size:14px;margin:0;font-weight:600;">{run.get('items_new', 0)}</p>
+                        </td>
+                        <td style="padding:12px 16px;background:#020617;border:1px solid #334155;border-left:none;border-right:none;">
+                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Updated</p>
+                            <p style="color:#F59E0B;font-size:14px;margin:0;font-weight:600;">{run.get('items_updated', 0)}</p>
+                        </td>
+                        <td style="padding:12px 16px;background:#020617;border-radius:0 8px 8px 0;border:1px solid #334155;border-left:none;">
+                            <p style="color:#64748B;font-size:11px;margin:0 0 4px 0;text-transform:uppercase;">Events</p>
+                            <p style="color:#10B981;font-size:14px;margin:0;font-weight:600;">{run.get('events_created', 0)}</p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <!-- Footer -->
+            <div style="background:#020617;padding:32px;text-align:center;border-top:1px solid #1E293B;">
+                <p style="color:#64748B;font-size:13px;margin:0 0 8px 0;">
+                    Powered by <strong style="color:#3B82F6;">SafarAI</strong> Intelligence Platform
+                </p>
+                <p style="color:#475569;font-size:11px;margin:0;">
+                    Tourism & Hospitality Competitive Intelligence
+                </p>
+            </div>
+            
         </div>
     </body>
     </html>
