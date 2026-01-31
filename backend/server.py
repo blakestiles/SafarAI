@@ -1,15 +1,19 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import hashlib
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
-
+import json
+import resend
+from firecrawl import FirecrawlApp
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,56 +23,673 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
-app = FastAPI()
+# Initialize APIs
+resend.api_key = os.environ.get('RESEND_API_KEY', '')
+firecrawl = FirecrawlApp(api_key=os.environ.get('FIRECRAWL_API_KEY', ''))
 
-# Create a router with the /api prefix
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="SafarAI Intelligence Platform")
 api_router = APIRouter(prefix="/api")
 
+# ========================
+# PYDANTIC MODELS
+# ========================
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
+class Source(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    name: str
+    url: str
+    category: str = "general"
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class SourceCreate(BaseModel):
+    name: str
+    url: str
+    category: str = "general"
+    active: bool = True
 
-# Add your routes to the router instead of directly to app
+class SourceUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    category: Optional[str] = None
+    active: Optional[bool] = None
+
+class Item(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    source_id: str
+    url: str
+    title: str
+    content_text: str
+    content_type: str = "html"
+    content_hash: str
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Event(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    run_id: str
+    item_id: str
+    company: str
+    event_type: str
+    title: str
+    summary: str
+    why_it_matters: str
+    materiality_score: int = 0
+    confidence: float = 0.0
+    key_entities: Dict[str, Any] = {}
+    evidence_quotes: List[str] = []
+    source_url: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Run(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: Optional[datetime] = None
+    status: str = "running"
+    sources_total: int = 0
+    sources_ok: int = 0
+    sources_failed: int = 0
+    items_total: int = 0
+    items_new: int = 0
+    items_updated: int = 0
+    items_unchanged: int = 0
+    events_created: int = 0
+    emails_sent: int = 0
+
+class RunLog(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    run_id: str
+    level: str = "info"
+    message: str
+    meta: Dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# ========================
+# DEFAULT SOURCES
+# ========================
+
+DEFAULT_SOURCES = [
+    {"name": "Marriott News", "url": "https://news.marriott.com/", "category": "hotel"},
+    {"name": "Hilton Stories", "url": "https://stories.hilton.com/", "category": "hotel"},
+    {"name": "Airbnb News", "url": "https://news.airbnb.com/", "category": "accommodation"},
+    {"name": "Reuters Business", "url": "https://www.reuters.com/business/", "category": "news"},
+    {"name": "US Travel Association", "url": "https://www.ustravel.org/", "category": "association"},
+    {"name": "TravelZoo", "url": "https://www.travelzoo.com/", "category": "deals"},
+]
+
+# Keywords for link filtering
+KEYWORDS = [
+    "press", "news", "blog", "partnership", "partner", "alliance", "collaboration",
+    "funding", "investment", "acquisition", "campaign", "deal", "package", "offer",
+    "discount", "promotion", "vacation", "resort", "special offer", "announcement"
+]
+
+# ========================
+# UTILITY FUNCTIONS
+# ========================
+
+def compute_hash(content: str) -> str:
+    return hashlib.sha256(content[:12000].encode()).hexdigest()
+
+def filter_link(url: str) -> bool:
+    url_lower = url.lower()
+    return any(kw in url_lower for kw in KEYWORDS)
+
+async def log_run(run_id: str, level: str, message: str, meta: dict = None):
+    log = RunLog(run_id=run_id, level=level, message=message, meta=meta or {})
+    doc = log.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.run_logs.insert_one(doc)
+    if level == "error":
+        logger.error(f"[{run_id}] {message}")
+    else:
+        logger.info(f"[{run_id}] {message}")
+
+# ========================
+# LLM CLASSIFICATION
+# ========================
+
+async def classify_content(content: str, url: str, title: str) -> Optional[Dict]:
+    """Use Emergent LLM to classify content into structured intelligence."""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        
+        system_prompt = """You are a competitive intelligence analyst for the tourism and hospitality industry.
+Analyze the provided content and extract structured intelligence.
+You MUST return ONLY valid JSON with NO markdown formatting, NO code blocks, NO explanation.
+
+Return this exact JSON structure:
+{
+  "company": "string - company name mentioned",
+  "event_type": "one of: partnership | funding | campaign_deal | pricing_change | acquisition | hiring_exec | other",
+  "title": "string - brief title of the event",
+  "summary": "1-2 sentences summarizing the key information",
+  "why_it_matters": "1-2 sentences explaining relevance to tourism executives",
+  "materiality_score": 0-100 integer indicating business impact,
+  "confidence": 0-1 float indicating extraction confidence,
+  "key_entities": {
+    "partners": [],
+    "campaigns": [],
+    "packages": [],
+    "discounts": [],
+    "locations": [],
+    "amounts": [],
+    "dates": []
+  },
+  "evidence_quotes": ["2-3 short snippets from the content"],
+  "source_url": "the source url"
+}
+
+If content is not relevant to tourism/hospitality intelligence, return null."""
+
+        chat = LlmChat(
+            api_key=os.environ.get('EMERGENT_LLM_KEY', ''),
+            session_id=f"classify-{uuid.uuid4()}",
+            system_message=system_prompt
+        ).with_model("openai", "gpt-5.2")
+        
+        user_message = UserMessage(
+            text=f"URL: {url}\nTitle: {title}\n\nContent:\n{content[:8000]}"
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        # Parse JSON response
+        response_text = response.strip()
+        if response_text.lower() == "null":
+            return None
+        
+        # Clean up response if it has markdown code blocks
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        
+        result = json.loads(response_text)
+        result["source_url"] = url
+        return result
+        
+    except Exception as e:
+        logger.error(f"LLM classification error: {e}")
+        return None
+
+# ========================
+# EMAIL BRIEF GENERATION
+# ========================
+
+def generate_html_brief(events: List[Dict], run: Dict) -> str:
+    """Generate HTML executive briefing email."""
+    
+    top_movers = [e for e in events if e.get('materiality_score', 0) >= 70]
+    partnerships = [e for e in events if e.get('event_type') == 'partnership']
+    funding = [e for e in events if e.get('event_type') == 'funding']
+    campaigns = [e for e in events if e.get('event_type') == 'campaign_deal']
+    
+    def event_card(event: Dict) -> str:
+        badge_colors = {
+            "partnership": "#10B981",
+            "funding": "#3B82F6",
+            "campaign_deal": "#F59E0B",
+            "acquisition": "#8B5CF6",
+            "pricing_change": "#EC4899",
+            "hiring_exec": "#06B6D4",
+            "other": "#6B7280"
+        }
+        color = badge_colors.get(event.get('event_type', 'other'), '#6B7280')
+        
+        quotes_html = ""
+        for quote in event.get('evidence_quotes', [])[:2]:
+            quotes_html += f'<p style="font-style:italic;color:#94A3B8;font-size:12px;margin:4px 0;">"{quote}"</p>'
+        
+        return f'''
+        <div style="background:#1E293B;border-radius:8px;padding:16px;margin-bottom:12px;border-left:4px solid {color};">
+            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                <span style="background:{color}20;color:{color};padding:2px 8px;border-radius:4px;font-size:10px;text-transform:uppercase;">{event.get('event_type', 'other').replace('_', ' ')}</span>
+                <span style="background:#374151;color:#F8FAFC;padding:2px 8px;border-radius:4px;font-size:11px;">Score: {event.get('materiality_score', 0)}</span>
+            </div>
+            <h3 style="color:#F8FAFC;margin:8px 0;font-size:16px;">{event.get('title', 'N/A')}</h3>
+            <p style="color:#CBD5E1;font-size:13px;margin:8px 0;">{event.get('company', 'Unknown Company')}</p>
+            <p style="color:#94A3B8;font-size:13px;margin:8px 0;">{event.get('summary', '')}</p>
+            <p style="color:#60A5FA;font-size:12px;margin:8px 0;"><strong>Why it matters:</strong> {event.get('why_it_matters', '')}</p>
+            {quotes_html}
+            <a href="{event.get('source_url', '#')}" style="color:#3B82F6;font-size:12px;text-decoration:none;">View Source →</a>
+        </div>
+        '''
+    
+    def section(title: str, items: List[Dict]) -> str:
+        if not items:
+            return ""
+        cards = "".join(event_card(e) for e in items[:5])
+        return f'''
+        <div style="margin-bottom:24px;">
+            <h2 style="color:#F8FAFC;font-size:20px;border-bottom:1px solid #374151;padding-bottom:8px;margin-bottom:16px;">{title}</h2>
+            {cards}
+        </div>
+        '''
+    
+    today = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; margin: 0; padding: 0; }}
+        </style>
+    </head>
+    <body>
+        <div style="max-width:680px;margin:0 auto;background:#0F172A;padding:32px;">
+            <div style="text-align:center;margin-bottom:32px;">
+                <h1 style="color:#3B82F6;font-size:28px;margin:0;">SafarAI</h1>
+                <p style="color:#94A3B8;margin:8px 0;">Competitive Intelligence Brief</p>
+                <p style="color:#64748B;font-size:14px;">{today}</p>
+            </div>
+            
+            {section("🔥 Top Movers", top_movers)}
+            {section("🤝 Partnerships", partnerships)}
+            {section("💰 Funding & Investments", funding)}
+            {section("🎯 Campaigns & Deals", campaigns)}
+            
+            <div style="background:#1E293B;border-radius:8px;padding:16px;margin-top:24px;">
+                <h3 style="color:#F8FAFC;font-size:14px;margin:0 0 12px 0;">Run Health</h3>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+                    <div style="color:#94A3B8;font-size:12px;">Status: <span style="color:{'#10B981' if run.get('status') == 'success' else '#F59E0B'}">{run.get('status', 'unknown').upper()}</span></div>
+                    <div style="color:#94A3B8;font-size:12px;">Sources: {run.get('sources_ok', 0)}/{run.get('sources_total', 0)} OK</div>
+                    <div style="color:#94A3B8;font-size:12px;">Items: {run.get('items_new', 0)} new, {run.get('items_updated', 0)} updated</div>
+                    <div style="color:#94A3B8;font-size:12px;">Events: {run.get('events_created', 0)} extracted</div>
+                </div>
+            </div>
+            
+            <div style="text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #374151;">
+                <p style="color:#64748B;font-size:12px;">Powered by SafarAI Intelligence Platform</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+    
+    return html
+
+async def send_brief_email(html_content: str, run: Dict) -> bool:
+    """Send executive briefing via Resend."""
+    try:
+        recipients = os.environ.get('SAFARAI_RECIPIENTS', '').split(',')
+        recipients = [r.strip() for r in recipients if r.strip()]
+        
+        if not recipients:
+            logger.warning("No recipients configured for email")
+            return False
+        
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        
+        params = {
+            "from": os.environ.get('SAFARAI_FROM_EMAIL', 'onboarding@resend.dev'),
+            "to": recipients,
+            "subject": f"Daily Competitive Intel Brief — {today}",
+            "html": html_content
+        }
+        
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Email sent successfully: {email}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return False
+
+# ========================
+# PIPELINE EXECUTION
+# ========================
+
+async def run_pipeline(run_id: str):
+    """Execute the full intelligence pipeline."""
+    
+    await log_run(run_id, "info", "Starting pipeline execution")
+    
+    # Get active sources
+    sources = await db.sources.find({"active": True}, {"_id": 0}).to_list(100)
+    
+    run_data = {
+        "sources_total": len(sources),
+        "sources_ok": 0,
+        "sources_failed": 0,
+        "items_total": 0,
+        "items_new": 0,
+        "items_updated": 0,
+        "items_unchanged": 0,
+        "events_created": 0
+    }
+    
+    all_events = []
+    
+    for source in sources:
+        source_id = source['id']
+        source_url = source['url']
+        source_name = source['name']
+        
+        await log_run(run_id, "info", f"Processing source: {source_name}", {"url": source_url})
+        
+        try:
+            # Crawl with Firecrawl
+            crawl_result = await asyncio.to_thread(
+                firecrawl.scrape_url,
+                source_url,
+                params={'formats': ['markdown', 'links']}
+            )
+            
+            if not crawl_result:
+                raise Exception("Empty crawl result")
+            
+            markdown = crawl_result.get('markdown', '')
+            title = crawl_result.get('metadata', {}).get('title', source_name)
+            links = crawl_result.get('links', [])
+            
+            # Filter and limit links
+            filtered_links = [l for l in links if filter_link(l)][:8]
+            
+            await log_run(run_id, "info", f"Found {len(filtered_links)} relevant links from {source_name}")
+            
+            # Process main page
+            content_hash = compute_hash(markdown)
+            
+            existing = await db.items.find_one({"url": source_url}, {"_id": 0})
+            
+            is_new = existing is None
+            is_updated = existing and existing.get('content_hash') != content_hash
+            
+            if is_new or is_updated:
+                item = Item(
+                    source_id=source_id,
+                    url=source_url,
+                    title=title,
+                    content_text=markdown[:50000],
+                    content_type="html",
+                    content_hash=content_hash
+                )
+                
+                item_doc = item.model_dump()
+                item_doc['fetched_at'] = item_doc['fetched_at'].isoformat()
+                item_doc['last_seen_at'] = item_doc['last_seen_at'].isoformat()
+                
+                if is_new:
+                    await db.items.insert_one(item_doc)
+                    run_data['items_new'] += 1
+                else:
+                    await db.items.update_one(
+                        {"url": source_url},
+                        {"$set": item_doc}
+                    )
+                    run_data['items_updated'] += 1
+                
+                # Classify content with LLM
+                classification = await classify_content(markdown, source_url, title)
+                
+                if classification:
+                    event = Event(
+                        run_id=run_id,
+                        item_id=item.id,
+                        **classification
+                    )
+                    event_doc = event.model_dump()
+                    event_doc['created_at'] = event_doc['created_at'].isoformat()
+                    await db.events.insert_one(event_doc)
+                    all_events.append(event_doc)
+                    run_data['events_created'] += 1
+            else:
+                run_data['items_unchanged'] += 1
+                await db.items.update_one(
+                    {"url": source_url},
+                    {"$set": {"last_seen_at": datetime.now(timezone.utc).isoformat()}}
+                )
+            
+            run_data['items_total'] += 1
+            
+            # Process child links (limit to 3 per source to stay within limits)
+            for link_url in filtered_links[:3]:
+                try:
+                    link_result = await asyncio.to_thread(
+                        firecrawl.scrape_url,
+                        link_url,
+                        params={'formats': ['markdown']}
+                    )
+                    
+                    if link_result and link_result.get('markdown'):
+                        link_markdown = link_result.get('markdown', '')
+                        link_title = link_result.get('metadata', {}).get('title', link_url)
+                        link_hash = compute_hash(link_markdown)
+                        
+                        link_existing = await db.items.find_one({"url": link_url}, {"_id": 0})
+                        link_is_new = link_existing is None
+                        link_is_updated = link_existing and link_existing.get('content_hash') != link_hash
+                        
+                        if link_is_new or link_is_updated:
+                            link_item = Item(
+                                source_id=source_id,
+                                url=link_url,
+                                title=link_title,
+                                content_text=link_markdown[:50000],
+                                content_type="html",
+                                content_hash=link_hash
+                            )
+                            
+                            link_doc = link_item.model_dump()
+                            link_doc['fetched_at'] = link_doc['fetched_at'].isoformat()
+                            link_doc['last_seen_at'] = link_doc['last_seen_at'].isoformat()
+                            
+                            if link_is_new:
+                                await db.items.insert_one(link_doc)
+                                run_data['items_new'] += 1
+                            else:
+                                await db.items.update_one({"url": link_url}, {"$set": link_doc})
+                                run_data['items_updated'] += 1
+                            
+                            # Classify link content
+                            link_classification = await classify_content(link_markdown, link_url, link_title)
+                            
+                            if link_classification:
+                                link_event = Event(
+                                    run_id=run_id,
+                                    item_id=link_item.id,
+                                    **link_classification
+                                )
+                                link_event_doc = link_event.model_dump()
+                                link_event_doc['created_at'] = link_event_doc['created_at'].isoformat()
+                                await db.events.insert_one(link_event_doc)
+                                all_events.append(link_event_doc)
+                                run_data['events_created'] += 1
+                        else:
+                            run_data['items_unchanged'] += 1
+                        
+                        run_data['items_total'] += 1
+                        
+                except Exception as link_error:
+                    await log_run(run_id, "warn", f"Failed to process link: {link_url}", {"error": str(link_error)})
+            
+            run_data['sources_ok'] += 1
+            
+        except Exception as e:
+            run_data['sources_failed'] += 1
+            await log_run(run_id, "error", f"Failed to process source: {source_name}", {"error": str(e)})
+    
+    # Determine final status
+    if run_data['sources_failed'] == 0:
+        status = "success"
+    elif run_data['sources_ok'] > 0:
+        status = "partial_failure"
+    else:
+        status = "failure"
+    
+    # Generate and send brief
+    emails_sent = 0
+    if all_events:
+        run_data_for_brief = {**run_data, "status": status}
+        html_brief = generate_html_brief(all_events, run_data_for_brief)
+        
+        # Store brief
+        brief_doc = {
+            "id": str(uuid.uuid4()),
+            "run_id": run_id,
+            "html": html_brief,
+            "events": all_events,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.briefs.insert_one(brief_doc)
+        
+        # Send email
+        if await send_brief_email(html_brief, run_data_for_brief):
+            emails_sent = 1
+    
+    # Update run record
+    await db.runs.update_one(
+        {"id": run_id},
+        {"$set": {
+            **run_data,
+            "status": status,
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "emails_sent": emails_sent
+        }}
+    )
+    
+    await log_run(run_id, "info", f"Pipeline completed with status: {status}", run_data)
+
+# ========================
+# API ENDPOINTS
+# ========================
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "SafarAI Intelligence Platform API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
+@api_router.post("/run")
+async def trigger_run(background_tasks: BackgroundTasks):
+    """Trigger a new intelligence pipeline run."""
+    run = Run()
+    run_doc = run.model_dump()
+    run_doc['started_at'] = run_doc['started_at'].isoformat()
+    await db.runs.insert_one(run_doc)
     
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
+    background_tasks.add_task(run_pipeline, run.id)
     
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+    return {"run_id": run.id, "status": "started", "message": "Pipeline execution started"}
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.get("/brief/latest")
+async def get_latest_brief():
+    """Get the most recent executive briefing."""
+    brief = await db.briefs.find_one({}, {"_id": 0}, sort=[("created_at", -1)])
+    if not brief:
+        return {"message": "No briefs available yet", "brief": None}
+    return brief
 
-# Include the router in the main app
+@api_router.get("/sources")
+async def list_sources():
+    """List all configured sources."""
+    sources = await db.sources.find({}, {"_id": 0}).to_list(100)
+    return {"sources": sources}
+
+@api_router.post("/sources")
+async def create_source(source_data: SourceCreate):
+    """Add a new source to monitor."""
+    source = Source(**source_data.model_dump())
+    doc = source.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.sources.insert_one(doc)
+    return source
+
+@api_router.patch("/sources/{source_id}")
+async def update_source(source_id: str, update_data: SourceUpdate):
+    """Update source configuration."""
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
+    result = await db.sources.update_one({"id": source_id}, {"$set": update_dict})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Source not found")
+    
+    updated = await db.sources.find_one({"id": source_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/sources/{source_id}")
+async def delete_source(source_id: str):
+    """Delete a source."""
+    result = await db.sources.delete_one({"id": source_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return {"message": "Source deleted"}
+
+@api_router.get("/runs/latest")
+async def get_latest_run():
+    """Get the most recent run details."""
+    run = await db.runs.find_one({}, {"_id": 0}, sort=[("started_at", -1)])
+    if not run:
+        return {"message": "No runs yet", "run": None}
+    return run
+
+@api_router.get("/runs/{run_id}")
+async def get_run(run_id: str):
+    """Get a specific run by ID."""
+    run = await db.runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+@api_router.get("/logs/latest")
+async def get_latest_logs():
+    """Get logs from the most recent run."""
+    latest_run = await db.runs.find_one({}, {"_id": 0}, sort=[("started_at", -1)])
+    if not latest_run:
+        return {"logs": [], "message": "No runs yet"}
+    
+    logs = await db.run_logs.find(
+        {"run_id": latest_run['id']},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(500)
+    
+    return {"run_id": latest_run['id'], "logs": logs}
+
+@api_router.get("/logs/{run_id}")
+async def get_run_logs(run_id: str):
+    """Get logs for a specific run."""
+    logs = await db.run_logs.find(
+        {"run_id": run_id},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(500)
+    
+    return {"run_id": run_id, "logs": logs}
+
+@api_router.get("/stats")
+async def get_stats():
+    """Get overall platform statistics."""
+    total_sources = await db.sources.count_documents({})
+    active_sources = await db.sources.count_documents({"active": True})
+    total_runs = await db.runs.count_documents({})
+    total_events = await db.events.count_documents({})
+    total_items = await db.items.count_documents({})
+    
+    latest_run = await db.runs.find_one({}, {"_id": 0}, sort=[("started_at", -1)])
+    
+    return {
+        "total_sources": total_sources,
+        "active_sources": active_sources,
+        "total_runs": total_runs,
+        "total_events": total_events,
+        "total_items": total_items,
+        "latest_run": latest_run
+    }
+
+# Include router
 app.include_router(api_router)
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -77,12 +698,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Startup: Seed default sources
+@app.on_event("startup")
+async def startup_event():
+    # Create indexes
+    await db.items.create_index("url", unique=True)
+    await db.sources.create_index("active")
+    await db.runs.create_index([("started_at", -1)])
+    
+    # Seed default sources if none exist
+    source_count = await db.sources.count_documents({})
+    if source_count == 0:
+        logger.info("Seeding default sources...")
+        for src in DEFAULT_SOURCES:
+            source = Source(**src)
+            doc = source.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.sources.insert_one(doc)
+        logger.info(f"Seeded {len(DEFAULT_SOURCES)} default sources")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
